@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru" data-theme="kitchen">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sticks — этикетки и маркировка</title>
+<meta name="description" content="Печать этикеток ХАССП: быстро, офлайн, на телефоне и ПК">
+<meta name="theme-color" content="#0f1a15">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sticks">
+<link rel="stylesheet" href="css/app.css">
+<script>try{const u=JSON.parse(localStorage.getItem('sticks.ui')||'{}');if(u.theme)document.documentElement.dataset.theme=u.theme;if(u.ac)document.documentElement.style.setProperty('--ac',u.ac);if(u.sc)document.documentElement.style.fontSize=u.sc+'%'}catch(e){}</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><svg viewBox="0 0 24 24" width="26" height="26"><path d="M3 5h12l6 7-6 7H3z" fill="var(--ac)"/><circle cx="8" cy="12" r="1.8" fill="var(--bg)"/></svg><div><b>Sticks</b><small>этикетки · маркировка</small></div></div>
+    <div class="hr"><select id="ps" hidden aria-label="Пресет"></select><span id="clk"></span><i id="net" title="Связь"></i><button id="inst" hidden>⬇ Установить</button></div>
+  </header>
+  <main id="v"></main>
+  <nav id="nav">
+    <button data-t="print"><span>🏷️</span>Печать</button>
+    <button data-t="cons"><span>🎨</span>Макет</button>
+    <button data-t="hist"><span>🕘</span>История</button>
+    <button data-t="set"><span>⚙️</span>Настройки</button>
+  </nav>
+</div>
+<div id="pr"></div>
+<style id="pst"></style>
+<div id="toast"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
