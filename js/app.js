@@ -3,7 +3,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const p2 = n => String(n).padStart(2, '0');
-const fmt = d => { d = new Date(d); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const fmtF = d => { d = new Date(d); return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const fmt = d => { const x = new Date(d), f = S.s.dfmt, D = `${p2(x.getDate())}.${p2(x.getMonth() + 1)}.`, T = `${p2(x.getHours())}:${p2(x.getMinutes())}`; return f === 'short' ? `${D}${String(x.getFullYear()).slice(2)} ${T}` : f === 'date' ? `${D}${x.getFullYear()}` : f === 'iso' ? `${x.getFullYear()}-${p2(x.getMonth() + 1)}-${p2(x.getDate())} ${T}` : fmtF(x); };
 const loc = d => { d = new Date(d); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -11,9 +12,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const S = {
   items: [], emp: [], tpls: [], presets: [], bgImg: '', sel: new Set(), tab: 'print', q: '', fav: false, hq: '',
   s: { theme: 'kitchen', ac: '#ffb020', sc: 100, haptics: true, anim: true, wake: false, hist: 'month',
-       co: '', bg: 'none', bgd: 80, tpl: 'std', mode: 'roll', def: '', cnt: { d: '', n: 0 } }
+       co: '', bg: 'none', bgd: 80, rad: 14, dens: 'norm', hc: false, vibs: 'mid', snd: true, cdel: true, dfmt: 'full', eod: false, copies: 1, ox: 0, oy: 0, ps: 100, gap: 2, mg: 8, cut: true, warn: 12, crit: 4, tpl: 'std', mode: 'roll', def: '', cnt: { d: '', n: 0 } }
 };
-const vib = p => { if (S.s.haptics && navigator.vibrate) navigator.vibrate(p); };
+const vib = p => { if (!S.s.haptics || !navigator.vibrate) return; const f = { low: .6, mid: 1, high: 2 }[S.s.vibs] || 1; navigator.vibrate(Array.isArray(p) ? p.map(n => Math.round(n * f)) : Math.round(p * f)); };
+let actx;
+function beep(n = 1) { if (!S.s.snd) return; try { actx ||= new (window.AudioContext || window.webkitAudioContext)(); for (let i = 0; i < n; i++) { const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + i * .3; o.connect(g); g.connect(actx.destination); o.frequency.value = 880; g.gain.setValueAtTime(.15, t0); g.gain.exponentialRampToValueAtTime(.001, t0 + .2); o.start(t0); o.stop(t0 + .22); } } catch (e) {} }
 function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2400); }
 
 // ---------- IndexedDB (kv + история) ----------
@@ -40,7 +43,8 @@ const save = () => kvSet('data', { items: S.items, emp: S.emp, tpls: S.tpls, pre
 function applyUI() {
   const r = document.documentElement;
   r.dataset.theme = S.s.theme; r.style.setProperty('--ac', S.s.ac); r.style.fontSize = S.s.sc + '%';
-  document.body.classList.toggle('noanim', !S.s.anim);
+  document.body.classList.toggle('noanim', !S.s.anim); r.style.setProperty('--r', S.s.rad + 'px');
+  document.body.classList.toggle('compact', S.s.dens === 'compact'); document.body.classList.toggle('hc', !!S.s.hc);
   const dim = `color-mix(in srgb,var(--bg) ${S.s.bgd}%,transparent)`, B = document.body.style;
   const P = { none: '', aurora: 'radial-gradient(900px 500px at 8% 0,color-mix(in srgb,var(--ac) 30%,transparent),transparent),radial-gradient(700px 500px at 100% 100%,#4cc2ff33,transparent)', grid: 'linear-gradient(var(--ln) 1px,transparent 1px) 0 0/28px 28px,linear-gradient(90deg,var(--ln) 1px,transparent 1px) 0 0/28px 28px', dots: 'radial-gradient(var(--ln) 1.5px,transparent 1.7px) 0 0/22px 22px' };
   B.background = S.s.bg === 'img' && S.bgImg ? `linear-gradient(${dim},${dim}),url(${S.bgImg}) center/cover no-repeat` : (P[S.s.bg] || '');
@@ -130,7 +134,7 @@ BUILT.forEach(t => { t.els = toEls(t); delete t.blocks; });
 const tplAll = () => [...BUILT, ...S.tpls];
 const curTpl = id => tplAll().find(t => t.id === (id || S.s.tpl)) || BUILT[0];
 function data(j, co = S.s.co) {
-  const o = new Date(j.open), e = (j.noExp || !j.shelf) ? null : new Date(+o + j.shelf * 36e5);
+  const o = new Date(j.open), e = (j.noExp || !j.shelf) ? null : expAt(o, j.shelf);
   const raw = `НАЗВАНИЕ: ${j.name}\nВСКРЫТО: ${fmt(o)}\nГОДЕН ДО: ${e ? fmt(e) : '—'}\nВСКРЫЛ: ${j.by}\nПАРТИЯ: ${j.batch}\nХРАНЕНИЕ: ${j.temp}`;
   return { name: esc(j.name || '___'), open: fmt(o), exp: e ? fmt(e) : '__________', temp: esc(j.temp || '___'), by: esc(j.by || '___'), batch: esc(j.batch || '___'), al: esc(j.al || ''), co: esc(co || ''), raw, e };
 }
@@ -148,24 +152,25 @@ function elHTML(e, d, ed) {
     case 'img': return `<div ${at} style="${p}">${SAFE_IMG.test(e.src) ? `<img src="${e.src}" alt="" style="width:100%;height:100%;object-fit:${e.of};opacity:${e.op ?? 1}">` : '<div class="nq" style="width:100%;height:100%">картинка</div>'}</div>`;
   } return '';
 }
-function labelEl(d, t = curTpl(), ed) { const e = document.createElement('div'); e.className = 'lbl'; e.style.cssText = `width:${t.w}mm;height:${t.h}mm`; e.innerHTML = t.els.map(x => elHTML(x, d, ed)).join(''); return e; }
+function labelEl(d, t = curTpl(), ed, fx) { const e = document.createElement('div'); e.className = 'lbl'; e.style.cssText = `width:${t.w}mm;height:${t.h}mm`; const h = t.els.map(x => elHTML(x, d, ed)).join(''); e.innerHTML = fx ? `<div class="in" style="transform:translate(${+S.s.ox || 0}mm,${+S.s.oy || 0}mm) scale(${(+S.s.ps || 100) / 100})">${h}</div>` : h; return e; }
 function fitOne(n) { let s = 1; n.style.setProperty('--sf', 1); while ((n.scrollHeight > n.clientHeight + 1 || n.scrollWidth > n.clientWidth + 1) && s > .35) { s -= .05; n.style.setProperty('--sf', s.toFixed(2)); } }
 const fitEls = root => root.querySelectorAll('.el[data-af]').forEach(fitOne); // автоподбор: текст не вылезает за свой блок
+function expAt(o, h) { const e = new Date(+new Date(o) + h * 36e5); if (S.s.eod) e.setHours(23, 59, 0, 0); return e; }
 function status(i) {
   if (!i.printed || i.noExp || !i.open) return null;
-  const l = +new Date(i.open) + (i.ps ?? i.shelf) * 36e5 - Date.now();
-  return l <= 0 ? ['bad', '⛔ истёк'] : l < 4 * 36e5 ? ['bad', '⚠ < 4 ч'] : l < 12 * 36e5 ? ['warn', '⚠ скоро'] : ['ok', '✓ свежий'];
+  const l = +expAt(i.open, i.ps ?? i.shelf) - Date.now(), cr = S.s.crit * 36e5, wr = S.s.warn * 36e5;
+  return l <= 0 ? ['bad', '⛔ истёк'] : l < cr ? ['bad', `⚠ < ${S.s.crit} ч`] : l < wr ? ['warn', '⚠ скоро'] : ['ok', '✓ свежий'];
 }
 
 // ---------- печать ----------
 async function doPrint(jobs, tpl) {
   const t = tpl || curTpl(), root = $('#pr'), roll = S.s.mode === 'roll';
-  root.innerHTML = ''; root.className = roll ? 'roll' : 'sheet';
-  for (const j of jobs) for (let k = 0; k < j.copies; k++) root.append(labelEl(j.d, t));
+  root.innerHTML = ''; root.className = (roll ? 'roll' : 'sheet') + (S.s.cut ? '' : ' nocut'); root.style.gap = S.s.gap + 'mm';
+  for (const j of jobs) for (let k = 0; k < j.copies; k++) root.append(labelEl(j.d, t, false, true));
   document.body.classList.add('printing');
   fitEls(root);
-  $('#pst').textContent = roll ? `@page{size:${t.w}mm ${t.h}mm;margin:0}` : '@page{size:A4;margin:8mm}';
-  await sleep(80); window.print();
+  $('#pst').textContent = roll ? `@page{size:${t.w}mm ${t.h}mm;margin:0}` : `@page{size:A4;margin:${S.s.mg}mm}`;
+  beep(1); await sleep(80); window.print();
 }
 addEventListener('afterprint', () => { document.body.classList.remove('printing'); $('#pr').innerHTML = ''; });
 
@@ -179,7 +184,7 @@ function batchNo() {
   if (S.s.cnt.d !== k) S.s.cnt = { d: k, n: 0 };
   S.s.cnt.n++; save(); return `${k}-${p2(S.s.cnt.n)}`;
 }
-const jobOf = i => ({ id: i.id, name: i.name, shelf: i.shelf, temp: i.temp, al: i.al, open: loc(Date.now()), by: S.s.def, batch: '', noExp: false, copies: 1 });
+const jobOf = i => ({ id: i.id, name: i.name, shelf: i.shelf, temp: i.temp, al: i.al, open: loc(Date.now()), by: S.s.def, batch: '', noExp: false, copies: S.s.copies || 1 });
 function stamp(i, j) { if (!i) return; Object.assign(i, { open: j.open, by: j.by, batch: j.batch, noExp: j.noExp, ps: j.shelf, printed: Date.now() }); }
 
 // ---------- экспорт / шаринг ----------
@@ -203,7 +208,7 @@ async function shareText(t) {
   try { await navigator.clipboard.writeText(t); toast('Скопировано в буфер'); } catch (e) { toast('Не удалось поделиться'); }
 }
 const HEAD = ['Дата печати', 'Наименование', 'Вскрыто', 'Годен до', 'Вскрыл', 'Партия', 'Хранение', 'Аллергены', 'Копий', 'Шаблон'];
-const hRow = r => [fmt(r.ts), r.name, r.open, r.exp, r.by, r.batch, r.temp, r.al, r.copies, r.tpl];
+const hRow = r => [fmtF(r.ts), r.name, r.open, r.exp, r.by, r.batch, r.temp, r.al, r.copies, r.tpl];
 
 // ---------- окно этикетки ----------
 let J = null, M = null;
@@ -219,7 +224,7 @@ function openSheet(it) {
   <label>Вскрыл<input data-k="by" list="el" value="${esc(J.by)}"></label><datalist id="el">${S.emp.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
   <div class="r2"><label>Партия<input data-k="batch" value=""></label><button class="chip" data-a="auto">Авто</button></div>
   <label>Хранение<input data-k="temp" value="${esc(J.temp)}"></label><label>Аллергены<input data-k="al" value="${esc(J.al)}"></label>
-  <div class="r2"><span>Копий</span><div class="st"><button data-a="m">−</button><b id="cp">1</b><button data-a="p">＋</button></div></div>
+  <div class="r2"><span>Копий</span><div class="st"><button data-a="m">−</button><b id="cp">${J.copies}</b><button data-a="p">＋</button></div></div>
   <div class="acts"><button class="pri" data-a="print">🖨 Печать</button><button data-a="share">Поделиться</button></div><button data-a="savei" style="width:100%;margin-top:8px">💾 Запомнить срок и хранение в карточке</button></div>`;
   M.addEventListener('input', e => { const k = e.target.dataset.k; if (!k) return; J[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.type === 'number' ? +e.target.value : e.target.value; drawPv(); });
   M.addEventListener('click', async e => {
@@ -277,7 +282,7 @@ function viewClick(e) {
   if (a === 'open' && it) openSheet(it);
   else if (a === 'sel') { b.checked ? S.sel.add(id) : S.sel.delete(id); drawList(); }
   else if (a === 'fav' && it) { it.fav = !it.fav; save(); drawList(); }
-  else if (a === 'del' && it) { if (confirm(`Удалить «${it.name}»?`)) { S.items = S.items.filter(x => x !== it); S.sel.delete(id); save(); drawList(); } }
+  else if (a === 'del' && it) { if (!S.s.cdel || confirm(`Удалить «${it.name}»?`)) { S.items = S.items.filter(x => x !== it); S.sel.delete(id); save(); drawList(); } }
   else if (a === 'favb') { S.fav = !S.fav; b.classList.toggle('on', S.fav); drawList(); }
   else if (a === 'add') addItem();
   else if (a === 'pall') printSel();
@@ -290,7 +295,7 @@ async function renderHist() {
   $('#v').innerHTML = `<div class="sec"><h3>Хранить историю</h3><div class="chips">${[['month', 'Месяц'], ['day', 'Только сутки'], ['off', 'Отключена']].map(([k, t]) => `<button class="chip ${S.s.hist === k ? 'on' : ''}" data-h="${k}">${t}</button>`).join('')}</div><p class="m" style="margin-top:6px">Записей: ${all.length}. Старые удаляются автоматически.</p></div>
   <div class="bar"><input id="hq" type="search" placeholder="Поиск" value="${esc(S.hq)}"></div>
   <div class="chips" style="margin-bottom:8px"><button class="chip" id="hx">📊 Excel</button><button class="chip" id="hs">📤 Поделиться</button><button class="chip" id="hc">🗑 Очистить</button></div>
-  <div id="hl">${L.map(r => { const dd = fmt(r.ts).slice(0, 10), h = dd !== day ? `<div class="dh">${dd}</div>` : ''; day = dd; return `${h}<div class="row"><b>${esc(r.name)} ×${r.copies}</b><button data-a="hd" data-id="${r.id}" aria-label="Удалить запись">✕</button><small>${fmt(r.ts).slice(11)} · до ${esc(r.exp || '—')} · ${esc(r.by || '—')} · ${esc(r.batch || '—')}</small></div>`; }).join('') || '<p class="m">Записей нет.</p>'}</div>`;
+  <div id="hl">${L.map(r => { const dd = fmtF(r.ts).slice(0, 10), h = dd !== day ? `<div class="dh">${dd}</div>` : ''; day = dd; return `${h}<div class="row"><b>${esc(r.name)} ×${r.copies}</b><button data-a="hd" data-id="${r.id}" aria-label="Удалить запись">✕</button><small>${fmtF(r.ts).slice(11)} · до ${esc(r.exp || '—')} · ${esc(r.by || '—')} · ${esc(r.batch || '—')}</small></div>`; }).join('') || '<p class="m">Записей нет.</p>'}</div>`;
   const rows = L.map(hRow), name = 'sticks-history-' + loc(Date.now()).slice(0, 10);
   $('#v').onclick = async e => {
     const h = e.target.closest('[data-h]')?.dataset.h, a = e.target.closest('[data-a]')?.dataset.a;
@@ -583,27 +588,54 @@ document.addEventListener('visibilitychange', wake);
 let dip = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); dip = e; $('#inst').hidden = false; });
 addEventListener('appinstalled', () => { $('#inst').hidden = true; toast('Установлено'); });
-const tog = (k, t) => `<label class="ck"><input type="checkbox" data-s="${k}" ${S.s[k] ? 'checked' : ''}> ${t}</label>`;
+const NUMK = new Set(['sc', 'bgd', 'rad', 'copies', 'ox', 'oy', 'ps', 'gap', 'mg', 'warn', 'crit']);
+const SD = { look: true }; // какие группы настроек раскрыты
+const opts = (arr, cur) => arr.map(([v, t]) => `<option value="${v}" ${String(cur) === String(v) ? 'selected' : ''}>${t}</option>`).join('');
+const sRange = (k, t, a, b, st, u) => `<label>${t}: <b data-o="${k}">${S.s[k]}${u}</b><input type="range" min="${a}" max="${b}" step="${st}" data-s="${k}" data-u="${u}" value="${S.s[k]}"></label>`;
+const sNum = (k, t, a, b, st) => `<label>${t}<input type="number" inputmode="decimal" min="${a}" max="${b}" step="${st}" data-s="${k}" value="${S.s[k]}"></label>`;
+const sSel = (k, t, o) => `<label>${t}<select data-s="${k}">${opts(o, S.s[k])}</select></label>`;
+const sChk = (k, t) => `<label class="ck"><input type="checkbox" data-s="${k}" ${S.s[k] ? 'checked' : ''}> ${t}</label>`;
+const grp = (id, title, body) => `<details class="sec" data-g="${id}" ${SD[id] ? 'open' : ''}><summary>${title}</summary>${body}</details>`;
 function renderSet() {
   const ac = ['#ffb020', '#3ddc97', '#4cc2ff', '#ff6b8b', '#b794ff'];
-  $('#v').innerHTML = `<div class="sec"><h3>Внешний вид</h3><div class="sw">${[['kitchen', '#0f1a15'], ['paper', '#f4f2ec'], ['steel', '#0e1621'], ['oled', '#000']].map(([k, c]) => `<button data-th="${k}" style="background:${c};${S.s.theme === k ? 'outline:3px solid var(--ac)' : ''}" aria-label="Тема ${k}"></button>`).join('')}</div>
+  const look = `<div class="sw">${[['kitchen', '#0f1a15'], ['paper', '#f4f2ec'], ['steel', '#0e1621'], ['oled', '#000']].map(([k, c]) => `<button data-th="${k}" style="background:${c};${S.s.theme === k ? 'outline:3px solid var(--ac)' : ''}" aria-label="Тема ${k}"></button>`).join('')}</div>
   <div class="sw" style="margin-top:8px">${ac.map(c => `<button data-ac="${c}" style="background:${c};width:34px;height:34px;min-height:0"></button>`).join('')}</div>
-  <h3 style="margin-top:10px">Фон</h3><div class="chips">${[['none', 'Нет'], ['aurora', 'Сияние'], ['grid', 'Сетка'], ['dots', 'Точки'], ['img', 'Своё фото']].map(([k, t]) => `<button class="chip ${S.s.bg === k ? 'on' : ''}" data-bg="${k}">${t}</button>`).join('')}</div>
-  ${S.s.bg === 'img' ? `<label>Затемнение: ${S.s.bgd}%<input type="range" min="40" max="95" step="5" data-s="bgd" value="${S.s.bgd}"></label>` : ''}<label>Размер интерфейса: ${S.s.sc}%<input type="range" min="85" max="130" step="5" data-s="sc" value="${S.s.sc}"></label>${tog('anim', 'Плавные эффекты')}${tog('haptics', 'Вибрация при нажатии (Android)')}${tog('wake', 'Не гасить экран')}</div>
-  <div class="sec"><h3>Печать</h3><label>Название компании (для этикетки)<input data-s="co" placeholder="Например: Кафе «Лето»" value="${esc(S.s.co)}"></label>
-  <label>Макет этикетки<select data-s="tpl">${tplAll().map(t => `<option value="${t.id}" ${S.s.tpl === t.id ? 'selected' : ''}>${esc(t.n)}</option>`).join('')}</select></label><p class="m">Свои макеты — на вкладке «Макет».</p>
-  <label>Режим<select data-s="mode"><option value="roll" ${S.s.mode === 'roll' ? 'selected' : ''}>Рулон / термопринтер (Datamax): 1 этикетка = 1 стикер</option><option value="sheet" ${S.s.mode === 'sheet' ? 'selected' : ''}>Лист A4 (несколько этикеток)</option></select></label></div>
-  <div class="sec"><h3>Пресеты (быстрое переключение)</h3><p class="m">Запоминают компанию, макет, режим печати и сотрудника по умолчанию. Удобно, если программа стоит на общем ПК.</p>${S.presets.map(x => `<div class="row"><b>${esc(x.n)}</b><span><button data-pa="${x.id}">Применить</button><button data-pd="${x.id}" aria-label="Удалить пресет">✕</button></span><small>${esc(x.co || 'без названия компании')} · ${esc(curTpl(x.tpl).n)}</small></div>`).join('')}<button data-x="ps" style="margin-top:8px">＋ Сохранить текущие настройки как пресет</button></div>
-  <div class="sec"><h3>Сотрудники</h3><textarea rows="4" id="emp" placeholder="По одному на строку">${esc(S.emp.join('\n'))}</textarea>
-  <label>По умолчанию<select data-s="def"><option value="">—</option>${S.emp.map(e => `<option ${S.s.def === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></label></div>
-  <div class="sec"><h3>Данные</h3><div class="chips"><button data-x="imp">📥 Импорт сырья (Excel/CSV)</button><button data-x="tpl">📄 Шаблон Excel</button><button data-x="exi">📊 Сырьё в Excel</button><button data-x="bk">💾 Резервная копия</button><button data-x="rs">♻️ Восстановить</button><button data-x="rst" style="color:var(--bd)">Сбросить всё</button></div><input type="file" id="fi" hidden></div>
-  <div class="sec"><h3>Приложение</h3><button id="inst2">⬇ Установить на устройство</button><p class="m" style="margin-top:6px">iPhone: «Поделиться» → «На экран Домой». Работает без интернета после первой загрузки.</p><p class="m">Sticks 2.0 · NEURAL_ARCHITECT_PREMIUM++ · @ASV_PROD</p></div>`;
+  <p class="m" style="margin-top:10px">Фон</p><div class="chips">${[['none', 'Нет'], ['aurora', 'Сияние'], ['grid', 'Сетка'], ['dots', 'Точки'], ['img', 'Своё фото']].map(([k, t]) => `<button class="chip ${S.s.bg === k ? 'on' : ''}" data-bg="${k}">${t}</button>`).join('')}</div>
+  ${S.s.bg === 'img' ? sRange('bgd', 'Затемнение фона', 40, 95, 5, '%') : ''}${sRange('sc', 'Размер интерфейса', 85, 130, 5, '%')}${sRange('rad', 'Скругление углов', 4, 24, 2, ' px')}${sSel('dens', 'Плотность', [['norm', 'Обычная'], ['compact', 'Компактная']])}${sChk('hc', 'Повышенная контрастность')}${sChk('anim', 'Плавные эффекты')}`;
+  const ctl = sChk('haptics', 'Вибрация при нажатии (Android)') + sSel('vibs', 'Сила вибрации', [['low', 'Слабая'], ['mid', 'Средняя'], ['high', 'Сильная']]) + sChk('snd', 'Звуки (таймеры)') + sChk('cdel', 'Спрашивать подтверждение при удалении') + sChk('wake', 'Не гасить экран');
+  const prn = `<label>Название компании (для этикетки)<input data-s="co" placeholder="Например: Кафе «Лето»" value="${esc(S.s.co)}"></label>` + sSel('tpl', 'Макет этикетки', tplAll().map(t => [t.id, esc(t.n)])) + `<p class="m">Свои макеты — на вкладке «Макет».</p>`
+    + sSel('mode', 'Режим печати', [['roll', 'Рулон / термопринтер (1 этикетка = 1 стикер)'], ['sheet', 'Лист A4 (несколько этикеток)']]) + sNum('copies', 'Копий по умолчанию', 1, 99, 1)
+    + sSel('dfmt', 'Формат даты на этикетке', [['full', '31.12.2026 14:30'], ['short', '31.12.26 14:30'], ['date', '31.12.2026 (без времени)'], ['iso', '2026-12-31 14:30']]) + sChk('eod', 'Срок годности — до конца суток (23:59)');
+  const adj = sRange('ps', 'Масштаб печати', 80, 120, 1, '%') + `<div class="r2">${sNum('ox', 'Сдвиг по X, мм', -10, 10, .5)}${sNum('oy', 'Сдвиг по Y, мм', -10, 10, .5)}</div><div class="r2">${sNum('gap', 'Зазор на листе A4, мм', 0, 20, .5)}${sNum('mg', 'Поля листа A4, мм', 0, 30, 1)}</div>` + sChk('cut', 'Пунктирная рамка вокруг этикеток (лист A4)') + `<button data-x="tp" style="margin-top:8px">🖨 Пробная печать</button>`;
+  const exp = `<p class="m">Определяют цвет статусов в списке продукции и на вкладке «Сроки».</p>` + sNum('warn', 'Предупреждать «скоро» за, часов', 1, 240, 1) + sNum('crit', 'Критично за, часов', 1, 48, 1);
+  const pres = `<p class="m">Запоминают компанию, макет, режим печати и сотрудника по умолчанию. Удобно, если программа стоит на общем ПК.</p>${S.presets.map(x => `<div class="row"><b>${esc(x.n)}</b><span><button data-pa="${x.id}">Применить</button><button data-pd="${x.id}" aria-label="Удалить пресет">✕</button></span><small>${esc(x.co || 'без названия компании')} · ${esc(curTpl(x.tpl).n)}</small></div>`).join('')}<button data-x="ps" style="margin-top:8px">＋ Сохранить текущие настройки как пресет</button>`;
+  const emp = `<textarea rows="4" id="emp" placeholder="По одному на строку">${esc(S.emp.join('\n'))}</textarea><label>По умолчанию<select data-s="def"><option value="">—</option>${S.emp.map(e => `<option ${S.s.def === e ? 'selected' : ''}>${esc(e)}</option>`).join('')}</select></label>`;
+  const dat = `<p class="m" id="stg">Хранилище: считаю…</p><div class="chips"><button data-x="imp">📥 Импорт сырья (Excel/CSV)</button><button data-x="tpl">📄 Шаблон Excel</button><button data-x="exi">📊 Сырьё в Excel</button><button data-x="bk">💾 Резервная копия</button><button data-x="rs">♻️ Восстановить</button><button data-x="persist">🛡 Защитить данные от очистки</button><button data-x="rst" style="color:var(--bd)">Сбросить всё</button></div><input type="file" id="fi" hidden>`;
+  const app = `<div class="chips"><button id="inst2">⬇ Установить на устройство</button><button data-x="cache">🔄 Обновить приложение (очистить кэш)</button></div><p class="m" style="margin-top:6px">iPhone: «Поделиться» → «На экран Домой». Работает без интернета после первой загрузки.</p><p class="m">Sticks 2.0 · NEURAL_ARCHITECT_PREMIUM++ · @ASV_PROD</p>`;
   const v = $('#v');
-  v.oninput = e => { const k = e.target.dataset.s; if (k && e.target.type !== 'checkbox' && k !== 'tpl' && k !== 'mode' && k !== 'def') { S.s[k] = k === 'sc' ? +e.target.value : e.target.value; applyUI(); save(); } if (e.target.id === 'emp') { S.emp = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); save(); } };
-  v.onchange = e => { const k = e.target.dataset.s; if (!k) { if (e.target.id === 'fi') fileIn(e); return; } S.s[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.type === 'range' ? +e.target.value : e.target.value; applyUI(); save(); if (k === 'wake') wake(); if (k === 'sc') renderSet(); };
-  if (v._bi) v.removeEventListener('input', v._bi);
-  v.addEventListener('input', v._bi = e => { if (e.target.dataset.s === 'bgd') { S.s.bgd = +e.target.value; applyUI(); save(); } });
+  v.innerHTML = `<div class="bar"><input id="sq" type="search" placeholder="🔍 Поиск по настройкам"></div>` + grp('look', '🎨 Внешний вид', look) + grp('ctl', '👆 Управление и звук', ctl) + grp('prn', '🖨 Печать', prn) + grp('adj', '📐 Подстройка принтера', adj) + grp('exp', '⏳ Сроки и статусы', exp) + grp('emp', '👥 Сотрудники', emp) + grp('pres', '⚡ Пресеты (быстрое переключение)', pres) + grp('dat', '💾 Данные и хранилище', dat) + grp('app', 'ℹ️ Приложение', app);
+  navigator.storage?.estimate?.().then(async e => { const el = $('#stg'); if (el) el.textContent = `Занято: ${(e.usage / 1048576).toFixed(1)} МБ из ${Math.round(e.quota / 1048576)} МБ · защита от очистки: ${(await navigator.storage.persisted?.()) ? 'включена' : 'выключена'}`; }).catch(() => {});
+  const filter = q => {
+    q = q.trim().toLowerCase();
+    v.querySelectorAll('details.sec').forEach(d => {
+      const sh = d.querySelector('summary').textContent.toLowerCase().includes(q), hit = !q || sh || d.textContent.toLowerCase().includes(q);
+      d.hidden = !hit; d.open = q ? hit : !!SD[d.dataset.g];
+      d.querySelectorAll(':scope > label').forEach(l => { l.hidden = !!q && !sh && !l.textContent.toLowerCase().includes(q); });
+    });
+  };
+  const setK = el => {
+    const k = el.dataset.s; if (!k) return;
+    S.s[k] = el.type === 'checkbox' ? el.checked : NUMK.has(k) ? (+el.value || 0) : el.value;
+    const o = $(`[data-o="${k}"]`); if (o) o.textContent = S.s[k] + (el.dataset.u || '');
+    applyUI(); save(); if (k === 'wake') wake();
+  };
+  v.oninput = e => {
+    if (e.target.id === 'emp') { S.emp = e.target.value.split('\n').map(x => x.trim()).filter(Boolean); save(); }
+    else if (e.target.id === 'sq') filter(e.target.value); else setK(e.target);
+  };
+  v.onchange = e => { if (e.target.id === 'fi') fileIn(e); };
   v.onclick = async e => {
+    const sm = e.target.closest('summary'); if (sm) { const d = sm.parentNode; setTimeout(() => { SD[d.dataset.g] = d.open; }); return; }
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.th) { S.s.theme = b.dataset.th; applyUI(); save(); renderSet(); }
     else if (b.dataset.ac) { S.s.ac = b.dataset.ac; applyUI(); save(); }
@@ -618,7 +650,10 @@ function renderSet() {
 }
 let fmode = '';
 const act = async x => {
-  if (x === 'imp') { fmode = 'imp'; $('#fi').accept = '.xlsx,.xls,.csv'; $('#fi').click(); }
+  if (x === 'tp') doPrint([{ d: sample(), copies: 1 }], curTpl());
+  else if (x === 'persist') { const ok = await navigator.storage?.persist?.(); toast(ok ? 'Данные защищены от автоочистки' : 'Браузер не разрешил защиту'); renderSet(); }
+  else if (x === 'cache') { try { for (const k of await caches.keys()) await caches.delete(k); for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) {} location.reload(); }
+  else if (x === 'imp') { fmode = 'imp'; $('#fi').accept = '.xlsx,.xls,.csv'; $('#fi').click(); }
   else if (x === 'rs') { fmode = 'rs'; $('#fi').accept = '.json'; $('#fi').click(); }
   else if (x === 'tpl') deliver(await makeFile(['Наименование', 'Срок_ч', 'Температура', 'Аллергены'], [['Молоко 3,2%', 72, '+2...+6°C', 'молоко']], 'sticks-template', 'Сырьё'));
   else if (x === 'exi') deliver(await makeFile(['Наименование', 'Срок_ч', 'Температура', 'Аллергены'], S.items.map(i => [i.name, i.shelf, i.temp, i.al]), 'sticks-items', 'Сырьё'), true);
@@ -658,10 +693,100 @@ function drawPs() {
   const el = $('#ps'); el.hidden = !S.presets.length; if (el.hidden) return;
   el.innerHTML = S.presets.map(x => `<option value="${x.id}" ${S.s.preset === x.id ? 'selected' : ''}>${esc(x.n)}</option>`).join('');
 }
+// ---------- вкладка «Инструменты» ----------
+S.tool = 'ctl'; S.timers = [];
+let ctr = 0;
+const TOOLS = [['ctl', '📋 Сроки'], ['tm', '⏱ Таймеры'], ['calc', '🧮 Срок годности'], ['cv', '⚖️ Конвертер'], ['bl', '🏷 Бланки']];
+const dur = ms => { const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor(m % 1440 / 60); return d ? `${d} д ${h} ч` : h ? `${h} ч ${m % 60} мин` : `${m} мин`; };
+const mmss = ms => { const s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600); return (h ? h + ':' : '') + p2(Math.floor(s % 3600 / 60)) + ':' + p2(s % 60); };
+const saveTimers = () => kvSet('timers', S.timers).catch(() => {});
+function tickTimers() {
+  const now = Date.now(); let ch = false;
+  S.timers.forEach(t => { if (!t.done && now >= t.end) { t.done = 1; ch = true; vib([400, 150, 400, 150, 800]); beep(3); toast('⏰ ' + (t.n || 'Таймер') + ' — время вышло'); } });
+  if (ch) { saveTimers(); if (S.tab === 'tools' && S.tool === 'tm') drawTl(); }
+}
+function renderTools() {
+  const v = $('#v');
+  v.innerHTML = `<div class="chips tabs">${TOOLS.map(([k, t]) => `<button class="chip ${S.tool === k ? 'on' : ''}" data-tool="${k}">${t}</button>`).join('')}</div><div id="tb2"></div>`;
+  v.onclick = ev => { const b = ev.target.closest('button'); if (!b) return; if (b.dataset.tool) { S.tool = b.dataset.tool; renderTools(); } else toolClick(b); };
+  v.oninput = ev => toolInput(ev.target);
+  S.tick = null; ({ ctl: drawCtl, tm: drawTm, calc: drawCalc, cv: drawCv, bl: drawBl })[S.tool]();
+}
+// 1. контроль сроков
+function drawCtl() {
+  const L = S.items.filter(i => i.printed && !i.noExp && i.open).map(i => ({ i, left: +expAt(i.open, i.ps ?? i.shelf) - Date.now() })).sort((a, b) => a.left - b.left);
+  const c = { bad: 0, warn: 0, ok: 0 }; L.forEach(x => c[status(x.i)[0]]++);
+  $('#tb2').innerHTML = `<div class="chips" style="margin-bottom:8px"><span class="b bad">Критично: ${c.bad}</span><span class="b warn">Скоро: ${c.warn}</span><span class="b ok">В норме: ${c.ok}</span></div>`
+    + (L.length ? `<div class="list">${L.map(({ i, left }) => { const s = status(i); return `<div class="card"><div class="i"><b>${esc(i.name)}</b><small>до ${fmt(expAt(i.open, i.ps ?? i.shelf))} · ${esc(i.by || '—')} · ${esc(i.batch || '—')}<br>${left <= 0 ? 'просрочено на ' + dur(-left) : 'осталось ' + dur(left)}</small></div><span class="b ${s[0]}">${s[1]}</span><button data-w="${i.id}" title="Списать / убрать из контроля" aria-label="Убрать из контроля">✕</button></div>`; }).join('')}</div><div class="chips" style="margin-top:10px"><button data-a2="send">📤 Отправить список</button></div>` : '<p class="m">Здесь появятся напечатанные позиции со сроком, отсортированные по тому, что истечёт раньше. Пока ничего не напечатано.</p>');
+  S.tick = () => { if (++ctr % 30 === 0) drawCtl(); };
+}
+// 2. таймеры
+function drawTm() {
+  $('#tb2').innerHTML = `<div class="sec"><h3>Новый таймер</h3><label>Название<input id="tn" placeholder="Например: Разморозка" maxlength="40"></label><div class="chips">${[1, 3, 5, 10, 15, 30, 60].map(m => `<button class="chip" data-tmq="${m}">${m} мин</button>`).join('')}</div><div class="r2" style="margin-top:8px"><label>Минут<input type="number" id="tmm" min="0" max="999" value="0" inputmode="numeric"></label><label>Секунд<input type="number" id="tms" min="0" max="59" value="0" inputmode="numeric"></label><button class="pri" data-a2="tstart">Старт</button></div></div><div id="tl"></div><p class="m">Таймеры работают, пока приложение открыто; в фоне на телефоне сигнал не гарантирован.</p>`;
+  drawTl();
+}
+function drawTl() {
+  const el = $('#tl'); if (!el) return;
+  el.innerHTML = S.timers.map(t => `<div class="card tm ${t.done ? 'done' : ''}" data-id="${t.id}"><div class="i"><b>${esc(t.n || 'Таймер')}</b><small>${t.done ? '✓ время вышло' : 'идёт'}</small></div><span class="big" data-tr="${t.id}">${mmss(t.end - Date.now())}</span><span><button data-tmx="${t.id}">+1 мин</button><button data-tmd="${t.id}" aria-label="Удалить таймер">✕</button></span><div class="pbar"><i data-tp="${t.id}" style="width:${t.done ? 100 : Math.min(100, 100 - (t.end - Date.now()) / t.ms * 100)}%"></i></div></div>`).join('');
+  S.tick = () => { const now = Date.now(); S.timers.forEach(t => { const a = $(`[data-tr="${t.id}"]`), b = $(`[data-tp="${t.id}"]`); if (a && !t.done) a.textContent = mmss(t.end - now); if (b && !t.done) b.style.width = Math.min(100, 100 - (t.end - now) / t.ms * 100) + '%'; }); };
+}
+const startTimer = sec => { if (sec < 1) return toast('Укажите время'); beep(0); S.timers.push({ id: uid(), n: ($('#tn')?.value || '').trim(), end: Date.now() + sec * 1000, ms: sec * 1000, done: 0 }); saveTimers(); drawTl(); vib(15); };
+// 3. калькулятор срока годности
+function drawCalc() {
+  $('#tb2').innerHTML = `<div class="sec"><h3>Годен до</h3><label>Вскрыто / изготовлено<input type="datetime-local" id="c1" value="${loc(Date.now())}"></label><div class="r2"><label>Срок<input type="number" id="c2" min="0" step="any" value="72" inputmode="decimal"></label><label>Единица<select id="c3"><option value="1">часов</option><option value="24">дней</option><option value="720">месяцев (30 дн.)</option></select></label></div><div class="chips">${[[12, '12 ч'], [24, '24 ч'], [48, '48 ч'], [72, '72 ч'], [168, '7 дн.'], [720, '30 дн.']].map(([h, t]) => `<button class="chip" data-cq="${h}">${t}</button>`).join('')}</div><p class="res" id="cr1"></p></div>
+  <div class="sec"><h3>Сколько осталось</h3><label>Годен до<input type="datetime-local" id="c4" value="${loc(Date.now() + 864e5)}"></label><p class="res" id="cr2"></p></div>`;
+  calcRun(); S.tick = () => { if (++ctr % 30 === 0) calcRun(); };
+}
+function calcRun() {
+  const o = $('#c1')?.value, h = (+$('#c2').value || 0) * (+$('#c3').value || 1);
+  if ($('#cr1')) $('#cr1').textContent = o && h > 0 ? `Годен до: ${fmt(expAt(o, h))}${S.s.eod ? ' (до конца суток)' : ''}` : 'Укажите дату и срок';
+  const e = $('#c4')?.value, l = e ? +new Date(e) - Date.now() : NaN;
+  if ($('#cr2')) $('#cr2').textContent = isNaN(l) ? 'Укажите дату' : l <= 0 ? `⛔ Просрочено на ${dur(-l)}` : `Осталось ${dur(l)}`;
+}
+// 4. конвертер
+const UN = { mass: ['Масса', { 'г': 1, 'кг': 1000, 'унция': 28.3495, 'фунт': 453.592 }], vol: ['Объём', { 'мл': 1, 'л': 1000, 'ч. ложка': 5, 'ст. ложка': 15, 'стакан 250 мл': 250, 'фл. унция': 29.5735 }], temp: ['Температура', { '°C': 0, '°F': 0, 'K': 0 }] };
+S.cv = { c: 'mass', v: 1, f: 0, t: 1 };
+function cvRes() {
+  const C = S.cv, u = Object.keys(UN[C.c][1]), f = u[C.f], t = u[C.t]; let r;
+  if (C.c === 'temp') { const c = f === '°C' ? C.v : f === '°F' ? (C.v - 32) * 5 / 9 : C.v - 273.15; r = t === '°C' ? c : t === '°F' ? c * 9 / 5 + 32 : c + 273.15; }
+  else r = C.v * UN[C.c][1][f] / UN[C.c][1][t];
+  return isFinite(r) ? `${String(C.v).replace('.', ',')} ${f} = ${Number(r.toPrecision(7)).toString().replace('.', ',')} ${t}` : '—';
+}
+function drawCv() {
+  const C = S.cv, u = Object.keys(UN[C.c][1]), o = (cur) => u.map((n, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${n}</option>`).join('');
+  $('#tb2').innerHTML = `<div class="chips" style="margin-bottom:8px">${Object.entries(UN).map(([k, [n]]) => `<button class="chip ${C.c === k ? 'on' : ''}" data-cvc="${k}">${n}</button>`).join('')}</div><div class="sec"><label>Значение<input type="number" id="cvv" step="any" inputmode="decimal" value="${C.v}"></label><div class="r2"><label>Из<select id="cvf">${o(C.f)}</select></label><button data-cvs aria-label="Поменять местами">⇄</button><label>В<select id="cvt">${o(C.t)}</select></label></div><p class="res" id="cvr">${cvRes()}</p></div>`;
+}
+// 5. пустые бланки
+function drawBl() {
+  $('#tb2').innerHTML = `<div class="sec"><h3>Пустые этикетки для ручного заполнения</h3><label>Макет<select id="bt">${tplAll().map(t => `<option value="${t.id}" ${S.s.tpl === t.id ? 'selected' : ''}>${esc(t.n)}</option>`).join('')}</select></label><label>Количество<input type="number" id="bn" min="1" max="500" value="10" inputmode="numeric"></label><label class="ck"><input type="checkbox" id="bc" checked> Печатать название компании</label><button class="pri" data-a2="blank" style="width:100%;margin-top:8px">🖨 Печать бланков</button><p class="m" style="margin-top:6px">Поля даты, срока и названия остаются пустыми линиями.</p></div>`;
+}
+function toolClick(b) {
+  const d = b.dataset;
+  if (d.w) { const it = S.items.find(x => x.id === d.w); if (it) { it.printed = 0; save(); drawCtl(); toast('Убрано из контроля'); } }
+  else if (d.a2 === 'send') { const L = S.items.filter(i => i.printed && !i.noExp && i.open).sort((a, b) => +expAt(a.open, a.ps ?? a.shelf) - +expAt(b.open, b.ps ?? b.shelf)); shareText(L.map(i => `${i.name} — до ${fmt(expAt(i.open, i.ps ?? i.shelf))}`).join('\n') || 'Нет позиций'); }
+  else if (d.a2 === 'tstart') startTimer((+$('#tmm').value || 0) * 60 + (+$('#tms').value || 0));
+  else if (d.tmq) startTimer(+d.tmq * 60);
+  else if (d.tmx) { const t = S.timers.find(x => x.id === d.tmx); if (t) { t.end = Math.max(t.end, Date.now()) + 6e4; t.ms += 6e4; t.done = 0; saveTimers(); drawTl(); } }
+  else if (d.tmd) { S.timers = S.timers.filter(x => x.id !== d.tmd); saveTimers(); drawTl(); }
+  else if (d.cq) { $('#c3').value = '1'; $('#c2').value = d.cq; calcRun(); }
+  else if (d.cvc) { S.cv = { c: d.cvc, v: S.cv.v, f: 0, t: 1 }; drawCv(); }
+  else if (d.cvs !== undefined) { [S.cv.f, S.cv.t] = [S.cv.t, S.cv.f]; drawCv(); }
+  else if (d.a2 === 'blank') {
+    const n = clamp($('#bn').value, 1, 500), dd = data({ name: '', open: Date.now(), shelf: 0, noExp: true, temp: '', by: '', batch: '', al: '' }, $('#bc').checked ? S.s.co : '');
+    dd.open = '____.____.________ ____:____'; dd.raw = 'Sticks'; doPrint([{ d: dd, copies: n }], curTpl($('#bt').value));
+  }
+}
+function toolInput(el) {
+  if (['c1', 'c2', 'c3', 'c4'].includes(el.id)) calcRun();
+  else if (el.id === 'cvv') { S.cv.v = +el.value; $('#cvr').textContent = cvRes(); }
+  else if (el.id === 'cvf') { S.cv.f = +el.value; $('#cvr').textContent = cvRes(); }
+  else if (el.id === 'cvt') { S.cv.t = +el.value; $('#cvr').textContent = cvRes(); }
+}
+
 // ---------- запуск ----------
-const VIEWS = { print: renderPrint, cons: renderCons, hist: renderHist, set: renderSet };
+const VIEWS = { print: renderPrint, cons: renderCons, tools: renderTools, hist: renderHist, set: renderSet };
 function go(t) {
-  S.tab = t; const v = $('#v'); v.onclick = v.oninput = v.onchange = v.onpointerdown = v.onmousedown = null; v.replaceWith(v.cloneNode(false)); // сброс слушателей между вкладками
+  S.tab = t; S.tick = null; const v = $('#v'); v.onclick = v.oninput = v.onchange = v.onpointerdown = v.onmousedown = null; v.replaceWith(v.cloneNode(false)); // сброс слушателей между вкладками
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
   VIEWS[t](); if (t === 'print') { $('#v').onclick = viewClick; $('#v').oninput = e => { if (e.target.id === 'q') { S.q = e.target.value; drawList(); } }; $('#v').onkeydown = e => { if (e.key === 'Enter' && e.target.id === 'nn') addItem(); }; }
   $('#v').scrollTop = 0;
@@ -673,6 +798,7 @@ $('#ps').onchange = e => applyPreset(e.target.value);
 const net = () => $('#net').classList.toggle('off', !navigator.onLine);
 addEventListener('online', net); addEventListener('offline', net);
 setInterval(() => { $('#clk').textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }); if (S.tab === 'print' && !M) drawList(); }, 30000);
+setInterval(() => { tickTimers(); S.tick?.(); }, 1000);
 
 (async () => {
   let d = null; try { d = await kvGet('data'); } catch (e) { toast('Хранилище недоступно — данные не сохранятся'); }
@@ -680,6 +806,7 @@ setInterval(() => { $('#clk').textContent = new Date().toLocaleTimeString('ru-RU
   if (d) { S.items = d.items || []; S.emp = d.emp || []; S.tpls = (d.tpls || []).map(fixTpl).filter(Boolean); S.presets = Array.isArray(d.presets) ? d.presets : []; Object.assign(S.s, d.s || {}); }
   if (/ВЛАВАШЕ/i.test(S.s.co)) S.s.co = ''; // в программе не должно быть названия конкретной компании
   try { S.bgImg = (await kvGet('bg')) || ''; } catch (e) {} if (S.s.bg === 'img' && !S.bgImg) S.s.bg = 'none';
+  try { S.timers = ((await kvGet('timers')) || []).filter(t => t && t.id && +t.end).map(t => ({ id: String(t.id), n: String(t.n || '').slice(0, 40), end: +t.end, ms: +t.ms || 6e4, done: t.done ? 1 : 0 })); } catch (e) {}
   applyUI(); drawPs(); net(); $('#clk').textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   lib('qrcode').then(() => { if (M) drawPv(); }).catch(() => {});
   hPrune().catch(() => {}); setInterval(() => hPrune().catch(() => {}), 36e5); wake();
